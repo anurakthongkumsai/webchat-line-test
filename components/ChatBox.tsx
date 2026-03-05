@@ -8,7 +8,11 @@ import ChatHeader from './chat/ChatHeader'
 import MessageList from './chat/MessageList'
 import ChatInput from './chat/ChatInput'
 
-export default function ChatBox() {
+interface Props {
+  userId: string
+}
+
+export default function ChatBox({ userId }: Props) {
   const [input, setInput] = useState('')
   const [errorMsg, setErrorMsg] = useState('')
   const [loading, setLoading] = useState(false)
@@ -18,6 +22,8 @@ export default function ChatBox() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [connected, setConnected] = useState(false)
   const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default')
+  const [displayName, setDisplayName] = useState('...')
+  const [pictureUrl, setPictureUrl] = useState<string | undefined>()
 
   const lastTsRef = useRef(0)
   const initialLoadDoneRef = useRef(false)
@@ -33,20 +39,20 @@ export default function ChatBox() {
   const sendBrowserNotif = useCallback(
     (text: string) => {
       if (notifPermission === 'granted' && document.hidden) {
-        new Notification('LINE OA', { body: text, icon: '/favicon.ico' })
+        new Notification(displayName, { body: text, icon: pictureUrl ?? '/favicon.ico' })
       }
     },
-    [notifPermission]
+    [notifPermission, displayName, pictureUrl]
   )
 
   useEffect(() => {
-    document.title = unreadCount > 0 ? `(${unreadCount}) WebChat - LINE OA` : 'WebChat - LINE OA'
-  }, [unreadCount])
+    document.title = unreadCount > 0 ? `(${unreadCount}) ${displayName}` : `${displayName} — WebChat`
+    return () => { document.title = 'WebChat - LINE OA' }
+  }, [unreadCount, displayName])
 
   useEffect(() => {
     const clearUnread = () => {
       setUnreadCount(0)
-      document.title = 'WebChat - LINE OA'
     }
     window.addEventListener('focus', clearUnread)
     return () => window.removeEventListener('focus', clearUnread)
@@ -56,12 +62,23 @@ export default function ChatBox() {
     async function poll() {
       try {
         const url =
-          lastTsRef.current > 0 ? `/api/messages?since=${lastTsRef.current}` : '/api/messages'
+          lastTsRef.current > 0
+            ? `/api/messages?userId=${userId}&since=${lastTsRef.current}`
+            : `/api/messages?userId=${userId}`
         const res = await fetch(url)
         if (!res.ok) { setConnected(false); return }
         setConnected(true)
 
-        const { messages: incoming }: { messages: ChatMessage[] } = await res.json()
+        const { messages: incoming, profile }: {
+          messages: ChatMessage[]
+          profile: { displayName: string; pictureUrl?: string }
+        } = await res.json()
+
+        if (profile) {
+          setDisplayName(profile.displayName)
+          setPictureUrl(profile.pictureUrl)
+        }
+
         const isInitialLoad = !initialLoadDoneRef.current
 
         if (incoming?.length > 0) {
@@ -100,7 +117,7 @@ export default function ChatBox() {
     poll()
     const id = setInterval(poll, POLL_INTERVAL_MS)
     return () => clearInterval(id)
-  }, [sendBrowserNotif])
+  }, [userId, sendBrowserNotif])
 
   useEffect(() => {
     if (isAtBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -112,10 +129,7 @@ export default function ChatBox() {
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
     isAtBottomRef.current = atBottom
     setIsAtBottom(atBottom)
-    if (atBottom) {
-      setUnreadCount(0)
-      document.title = 'WebChat - LINE OA'
-    }
+    if (atBottom) setUnreadCount(0)
   }
 
   const handleSend = async () => {
@@ -129,7 +143,7 @@ export default function ChatBox() {
       const res = await fetch('/api/send-to-line', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ userId, message: text }),
       })
 
       if (!res.ok) {
@@ -157,15 +171,16 @@ export default function ChatBox() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  const requestNotif = () =>
-    Notification.requestPermission().then(p => setNotifPermission(p))
-
   const syncMessages = async () => {
-    const res = await fetch('/api/messages')
+    const res = await fetch(`/api/messages?userId=${userId}`)
     if (!res.ok) return
-    const { messages: all }: { messages: ChatMessage[] } = await res.json()
+    const { messages: all, profile } = await res.json()
     setMessages(all)
-    if (all.length > 0) lastTsRef.current = Math.max(...all.map(m => m.timestamp))
+    if (profile) {
+      setDisplayName(profile.displayName)
+      setPictureUrl(profile.pictureUrl)
+    }
+    if (all.length > 0) lastTsRef.current = Math.max(...all.map((m: ChatMessage) => m.timestamp))
   }
 
   const showError = (msg: string) => {
@@ -174,17 +189,18 @@ export default function ChatBox() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-green-50 to-teal-50 flex items-center justify-center p-4">
+    <div className="min-h-screen sm:min-h-0 bg-gradient-to-br from-slate-100 via-green-50 to-teal-50 flex items-center justify-center sm:p-4">
       <div
-        className="w-full max-w-xl bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-        style={{ height: '88vh' }}
+        className="w-full sm:max-w-xl bg-white sm:rounded-2xl sm:shadow-2xl flex flex-col overflow-hidden h-screen sm:h-[88vh]"
       >
         <ChatHeader
           connected={connected}
           unreadCount={unreadCount}
           notifPermission={notifPermission}
           pollIntervalSec={POLL_INTERVAL_MS / 1000}
-          onRequestNotif={requestNotif}
+          displayName={displayName}
+          pictureUrl={pictureUrl}
+          onRequestNotif={() => Notification.requestPermission().then(p => setNotifPermission(p))}
         />
 
         <MessageList
@@ -192,6 +208,8 @@ export default function ChatBox() {
           initialLoading={initialLoading}
           isAtBottom={isAtBottom}
           unreadCount={unreadCount}
+          senderName={displayName}
+          senderPicture={pictureUrl}
           scrollContainerRef={scrollContainerRef}
           bottomRef={bottomRef}
           onScroll={handleScroll}

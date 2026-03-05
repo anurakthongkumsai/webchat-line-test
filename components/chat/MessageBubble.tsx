@@ -5,9 +5,17 @@ interface Props {
   message: ChatMessage
   groupedWithPrev: boolean
   groupedWithNext: boolean
+  senderName: string
+  senderPicture?: string
 }
 
-export default function MessageBubble({ message, groupedWithPrev, groupedWithNext }: Props) {
+export default function MessageBubble({
+  message,
+  groupedWithPrev,
+  groupedWithNext,
+  senderName,
+  senderPicture,
+}: Props) {
   const isUser = message.sender === 'user'
 
   return (
@@ -16,13 +24,21 @@ export default function MessageBubble({ message, groupedWithPrev, groupedWithNex
         groupedWithPrev ? 'mt-0.5' : 'mt-3'
       }`}
     >
+      {/* LINE user avatar */}
       {!isUser && (
-        <div
-          className={`w-7 h-7 rounded-full bg-green-500 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold ${
-            groupedWithPrev ? 'invisible' : ''
-          }`}
-        >
-          OA
+        <div className={`flex-shrink-0 ${groupedWithPrev ? 'invisible' : ''}`}>
+          {senderPicture ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={senderPicture}
+              alt={senderName}
+              className="w-7 h-7 rounded-full object-cover"
+            />
+          ) : (
+            <div className="w-7 h-7 rounded-full bg-green-500 flex items-center justify-center text-white text-xs font-bold">
+              {senderName.charAt(0).toUpperCase()}
+            </div>
+          )}
         </div>
       )}
 
@@ -41,6 +57,7 @@ export default function MessageBubble({ message, groupedWithPrev, groupedWithNex
         )}
       </div>
 
+      {/* Webchat user avatar */}
       {isUser && (
         <div
           className={`w-7 h-7 rounded-full bg-blue-400 flex-shrink-0 flex items-center justify-center text-white text-xs font-bold ${

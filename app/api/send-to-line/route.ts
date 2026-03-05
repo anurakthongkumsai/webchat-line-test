@@ -4,13 +4,17 @@ import { addMessage } from '@/lib/messageStore'
 
 export async function POST(request: Request) {
   try {
-    const { message } = await request.json()
+    const { userId, message } = await request.json()
+
+    if (!userId) {
+      return NextResponse.json({ error: 'userId is required' }, { status: 400 })
+    }
 
     if (!message?.trim()) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 })
     }
 
-    const { channelAccessToken, userId } = getLineServerConfig()
+    const { channelAccessToken } = getLineServerConfig()
 
     const response = await fetch(LINE_API_PUSH_URL, {
       method: 'POST',
@@ -30,7 +34,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Failed to send message to LINE' }, { status: 502 })
     }
 
-    addMessage(message.trim(), 'user')
+    addMessage(userId, message.trim(), 'user')
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('[send-to-line]', error)

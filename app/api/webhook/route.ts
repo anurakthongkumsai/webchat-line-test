@@ -1,11 +1,24 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { getLineServerConfig } from '@/lib/config'
-import { addMessage } from '@/lib/messageStore'
+import { getLineServerConfig, LINE_API_PROFILE_URL } from '@/lib/config'
+import { addMessage, setUserProfile } from '@/lib/messageStore'
 
 function verifySignature(body: string, signature: string, secret: string): boolean {
   const expected = crypto.createHmac('SHA256', secret).update(body).digest('base64')
   return expected === signature
+}
+
+async function fetchAndCacheProfile(userId: string, token: string): Promise<void> {
+  try {
+    const res = await fetch(`${LINE_API_PROFILE_URL}/${userId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) return
+    const { displayName, pictureUrl } = await res.json()
+    setUserProfile(userId, displayName, pictureUrl)
+  } catch {
+    // Profile fetch is non-critical — fall back to userId as display name
+  }
 }
 
 export async function POST(request: Request) {
@@ -13,7 +26,7 @@ export async function POST(request: Request) {
     const body = await request.text()
     const signature = request.headers.get('x-line-signature') ?? ''
 
-    const { channelSecret } = getLineServerConfig()
+    const { channelSecret, channelAccessToken } = getLineServerConfig()
 
     if (!verifySignature(body, signature, channelSecret)) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
@@ -22,8 +35,12 @@ export async function POST(request: Request) {
     const { events } = JSON.parse(body)
 
     for (const event of events) {
+      const userId = event.source?.userId
+      if (!userId) continue
+
       if (event.type === 'message' && event.message?.type === 'text') {
-        addMessage(event.message.text, 'line')
+        await fetchAndCacheProfile(userId, channelAccessToken)
+        addMessage(userId, event.message.text, 'line')
       }
     }
 

@@ -1,5 +1,5 @@
-import ChatBox from '@/components/ChatBox'
+import ConversationList from '@/components/ConversationList'
 
 export default function Home() {
-  return <ChatBox />
+  return <ConversationList />
 }

@@ -9,6 +9,8 @@ interface Props {
   initialLoading: boolean
   isAtBottom: boolean
   unreadCount: number
+  senderName: string
+  senderPicture?: string
   scrollContainerRef: RefObject<HTMLDivElement>
   bottomRef: RefObject<HTMLDivElement>
   onScroll: () => void
@@ -20,6 +22,8 @@ export default function MessageList({
   initialLoading,
   isAtBottom,
   unreadCount,
+  senderName,
+  senderPicture,
   scrollContainerRef,
   bottomRef,
   onScroll,
@@ -60,6 +64,8 @@ export default function MessageList({
                     message={msg}
                     groupedWithPrev={groupedWithPrev}
                     groupedWithNext={groupedWithNext}
+                    senderName={senderName}
+                    senderPicture={senderPicture}
                   />
                 )
               })}
