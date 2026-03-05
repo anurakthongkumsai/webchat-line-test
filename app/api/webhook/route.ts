@@ -15,7 +15,7 @@ async function fetchAndCacheProfile(userId: string, token: string): Promise<void
     })
     if (!res.ok) return
     const { displayName, pictureUrl } = await res.json()
-    setUserProfile(userId, displayName, pictureUrl)
+    await setUserProfile(userId, displayName, pictureUrl)
   } catch {
     // Profile fetch is non-critical — fall back to userId as display name
   }
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
 
       if (event.type === 'message' && event.message?.type === 'text') {
         await fetchAndCacheProfile(userId, channelAccessToken)
-        addMessage(userId, event.message.text, 'line')
+        await addMessage(userId, event.message.text, 'line')
       }
     }
 

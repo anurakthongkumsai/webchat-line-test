@@ -34,7 +34,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Failed to send message to LINE' }, { status: 502 })
     }
 
-    addMessage(userId, message.trim(), 'user')
+    await addMessage(userId, message.trim(), 'user')
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('[send-to-line]', error)

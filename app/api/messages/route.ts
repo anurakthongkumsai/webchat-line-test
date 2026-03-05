@@ -10,10 +10,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'userId is required' }, { status: 400 })
   }
 
-  markAsRead(userId)
+  await markAsRead(userId)
 
-  const messages = getMessages(userId, since ? Number(since) : undefined)
-  const profile = getUserProfile(userId)
+  const [messages, profile] = await Promise.all([
+    getMessages(userId, since ? Number(since) : undefined),
+    getUserProfile(userId),
+  ])
 
   return NextResponse.json({ messages, profile })
 }

@@ -1,45 +1,25 @@
+import { kv } from '@vercel/kv'
 import { ChatMessage, Conversation } from '@/types/chat'
 import { MAX_STORED_MESSAGES } from '@/lib/config'
 
-interface UserStore {
-  messages: ChatMessage[]
-  profile: { displayName: string; pictureUrl?: string }
-  unreadCount: number
+const MSGS_KEY = (userId: string) => `msgs:${userId}`
+const PROFILE_KEY = (userId: string) => `profile:${userId}`
+const UNREAD_KEY = (userId: string) => `unread:${userId}`
+const USERIDS_KEY = 'userids'
+
+export async function setUserProfile(userId: string, displayName: string, pictureUrl?: string): Promise<void> {
+  await Promise.all([
+    kv.set(PROFILE_KEY(userId), { displayName, pictureUrl }),
+    kv.sadd(USERIDS_KEY, userId),
+  ])
 }
 
-declare global {
-  // eslint-disable-next-line no-var
-  var __store: Map<string, UserStore> | undefined
+export async function getUserProfile(userId: string): Promise<{ displayName: string; pictureUrl?: string }> {
+  const profile = await kv.get<{ displayName: string; pictureUrl?: string }>(PROFILE_KEY(userId))
+  return profile ?? { displayName: userId.slice(0, 8) + '...' }
 }
 
-function getStore(): Map<string, UserStore> {
-  if (!global.__store) global.__store = new Map()
-  return global.__store
-}
-
-function getUserStore(userId: string): UserStore {
-  const store = getStore()
-  if (!store.has(userId)) {
-    store.set(userId, {
-      messages: [],
-      profile: { displayName: userId.slice(0, 8) + '...' },
-      unreadCount: 0,
-    })
-  }
-  return store.get(userId)!
-}
-
-export function setUserProfile(userId: string, displayName: string, pictureUrl?: string): void {
-  getUserStore(userId).profile = { displayName, pictureUrl }
-}
-
-export function getUserProfile(userId: string) {
-  return getUserStore(userId).profile
-}
-
-export function addMessage(userId: string, text: string, sender: ChatMessage['sender']): ChatMessage {
-  const userStore = getUserStore(userId)
-
+export async function addMessage(userId: string, text: string, sender: ChatMessage['sender']): Promise<ChatMessage> {
   const message: ChatMessage = {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     text,
@@ -47,41 +27,54 @@ export function addMessage(userId: string, text: string, sender: ChatMessage['se
     timestamp: Date.now(),
   }
 
-  userStore.messages.push(message)
-
-  if (userStore.messages.length > MAX_STORED_MESSAGES) {
-    userStore.messages.splice(0, userStore.messages.length - MAX_STORED_MESSAGES)
+  const existing = (await kv.get<ChatMessage[]>(MSGS_KEY(userId))) ?? []
+  existing.push(message)
+  if (existing.length > MAX_STORED_MESSAGES) {
+    existing.splice(0, existing.length - MAX_STORED_MESSAGES)
   }
 
-  if (sender === 'line') userStore.unreadCount++
+  await Promise.all([
+    kv.set(MSGS_KEY(userId), existing),
+    kv.sadd(USERIDS_KEY, userId),
+    sender === 'line' ? kv.incr(UNREAD_KEY(userId)) : Promise.resolve(),
+  ])
 
   return message
 }
 
-export function getMessages(userId: string, since?: number): ChatMessage[] {
-  const userStore = getUserStore(userId)
-  return since !== undefined
-    ? userStore.messages.filter(m => m.timestamp > since)
-    : [...userStore.messages]
+export async function getMessages(userId: string, since?: number): Promise<ChatMessage[]> {
+  const messages = (await kv.get<ChatMessage[]>(MSGS_KEY(userId))) ?? []
+  return since !== undefined ? messages.filter(m => m.timestamp > since) : messages
 }
 
-export function markAsRead(userId: string): void {
-  getUserStore(userId).unreadCount = 0
+export async function markAsRead(userId: string): Promise<void> {
+  await kv.set(UNREAD_KEY(userId), 0)
 }
 
-export function listConversations(): Conversation[] {
-  return Array.from(getStore().entries())
-    .map(([userId, data]) => {
-      const lastMsg = data.messages[data.messages.length - 1]
+export async function listConversations(): Promise<Conversation[]> {
+  const userIds = await kv.smembers(USERIDS_KEY)
+  if (userIds.length === 0) return []
+
+  const conversations = await Promise.all(
+    userIds.map(async (userId) => {
+      const [messages, profile, unread] = await Promise.all([
+        kv.get<ChatMessage[]>(MSGS_KEY(userId)),
+        kv.get<{ displayName: string; pictureUrl?: string }>(PROFILE_KEY(userId)),
+        kv.get<number>(UNREAD_KEY(userId)),
+      ])
+      const lastMsg = messages?.[messages.length - 1]
       return {
         userId,
-        displayName: data.profile.displayName,
-        pictureUrl: data.profile.pictureUrl,
+        displayName: profile?.displayName ?? userId.slice(0, 8) + '...',
+        pictureUrl: profile?.pictureUrl,
         lastMessage: lastMsg?.text ?? '',
         lastTimestamp: lastMsg?.timestamp ?? 0,
-        unreadCount: data.unreadCount,
+        unreadCount: unread ?? 0,
       }
     })
+  )
+
+  return conversations
     .filter(c => c.lastTimestamp > 0)
     .sort((a, b) => b.lastTimestamp - a.lastTimestamp)
 }
